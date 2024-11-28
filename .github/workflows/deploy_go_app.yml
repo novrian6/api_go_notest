@@ -1,82 +1,60 @@
-pipeline {
-    agent any
+name: Deploy Go Application
 
-    environment {
-        DEPLOY_USER = 'nn'
-        DEPLOY_HOST = 'nn-ubuntu'  //'143.198.218.9'
-        DEPLOY_PATH = '/home/nn/go_apps'
-        REPO_URL = 'https://github.com/novrian6/api_go_jenkins_demo.git'
-    }
+on:
+  push:
+    branches:
+      - main
 
-    stages {
-        stage('Clone Repository') {
-            steps {
-                script {
-                    echo 'Cleaning up old files...'
-                    sh 'rm -rf api_go_jenkins_demo'
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-                    echo 'Cloning the repository...'
-                    sh "git clone ${REPO_URL}"
-                }
-            }
-        }
+    env:
+      DEPLOY_USER: 'nn'
+      DEPLOY_HOST: 'nn-ubuntu'
+      DEPLOY_PATH: '/home/nn/go_apps'
+      REPO_URL: 'https://github.com/novrian6/api_go_jenkins_demo.git'
 
-        stage('Build Application') {
-            steps {
-                script {
-                    echo 'Building the Go application...'
-                    sh 'cd api_go_jenkins_demo && go build -o app main.go'
-                }
-            }
-        }
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
 
-        stage('Prepare Remote Deployment') {
-            steps {
-                script {
-                    echo 'Stopping existing application and preparing deployment path...'
-                    // Stop any running instance and clean up the deployment path
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
-                        pkill app || true;
-                        rm -f ${DEPLOY_PATH}/app;
-                        mkdir -p ${DEPLOY_PATH};
-                        chmod 755 ${DEPLOY_PATH}
-                        '
-                    """
-                }
-            }
-        }
+      - name: Cleanup and Clone Repository
+        run: |
+          echo "Cleaning up old files..."
+          rm -rf api_go_jenkins_demo
 
-        stage('Deploy to Server') {
-            steps {
-                script {
-                    echo 'Deploying the application to the server...'
-                    sh "scp -o StrictHostKeyChecking=no api_go_jenkins_demo/app ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}"
-                }
-            }
-        }
+          echo "Cloning the repository..."
+          git clone ${{ env.REPO_URL }}
 
-        stage('Set Permissions and Restart Application') {
-            steps {
-                script {
-                    echo 'Setting execute permission and restarting the application...'
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
-                        chmod +x ${DEPLOY_PATH}/app;
-                        nohup ${DEPLOY_PATH}/app >/dev/null 2>&1 &
-                        '
-                    """
-                }
-            }
-        }
-    }
+      - name: Build Application
+        run: |
+          echo "Building the Go application..."
+          cd api_go_jenkins_demo && go build -o app main.go
 
-    post {
-        success {
-            echo 'Deployment completed successfully.'
-        }
-        failure {
-            echo 'Deployment failed. Please check the logs.'
-        }
-    }
-}
+      - name: Prepare Remote Deployment
+        run: |
+          echo "Stopping existing application and preparing deployment path..."
+          ssh -o StrictHostKeyChecking=no ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
+            pkill app || true;
+            rm -f ${DEPLOY_PATH}/app;
+            mkdir -p ${DEPLOY_PATH};
+            chmod 755 ${DEPLOY_PATH}
+          "
+
+      - name: Deploy to Server
+        run: |
+          echo "Deploying the application to the server..."
+          scp -o StrictHostKeyChecking=no api_go_jenkins_demo/app ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}:${{ env.DEPLOY_PATH }}
+
+      - name: Set Permissions and Restart Application
+        run: |
+          echo "Setting execute permission and restarting the application..."
+          ssh -o StrictHostKeyChecking=no ${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }} "
+            chmod +x ${DEPLOY_PATH}/app;
+            nohup ${DEPLOY_PATH}/app >/dev/null 2>&1 &
+          "
+
+      - name: Deployment Complete
+        if: success()
+        run: echo "Deployment completed successfully."
