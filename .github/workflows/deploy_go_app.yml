@@ -1,0 +1,82 @@
+pipeline {
+    agent any
+
+    environment {
+        DEPLOY_USER = 'nn'
+        DEPLOY_HOST = 'nn-ubuntu'  //'143.198.218.9'
+        DEPLOY_PATH = '/home/nn/go_apps'
+        REPO_URL = 'https://github.com/novrian6/api_go_jenkins_demo.git'
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                script {
+                    echo 'Cleaning up old files...'
+                    sh 'rm -rf api_go_jenkins_demo'
+
+                    echo 'Cloning the repository...'
+                    sh "git clone ${REPO_URL}"
+                }
+            }
+        }
+
+        stage('Build Application') {
+            steps {
+                script {
+                    echo 'Building the Go application...'
+                    sh 'cd api_go_jenkins_demo && go build -o app main.go'
+                }
+            }
+        }
+
+        stage('Prepare Remote Deployment') {
+            steps {
+                script {
+                    echo 'Stopping existing application and preparing deployment path...'
+                    // Stop any running instance and clean up the deployment path
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
+                        pkill app || true;
+                        rm -f ${DEPLOY_PATH}/app;
+                        mkdir -p ${DEPLOY_PATH};
+                        chmod 755 ${DEPLOY_PATH}
+                        '
+                    """
+                }
+            }
+        }
+
+        stage('Deploy to Server') {
+            steps {
+                script {
+                    echo 'Deploying the application to the server...'
+                    sh "scp -o StrictHostKeyChecking=no api_go_jenkins_demo/app ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}"
+                }
+            }
+        }
+
+        stage('Set Permissions and Restart Application') {
+            steps {
+                script {
+                    echo 'Setting execute permission and restarting the application...'
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} '
+                        chmod +x ${DEPLOY_PATH}/app;
+                        nohup ${DEPLOY_PATH}/app >/dev/null 2>&1 &
+                        '
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment completed successfully.'
+        }
+        failure {
+            echo 'Deployment failed. Please check the logs.'
+        }
+    }
+}
